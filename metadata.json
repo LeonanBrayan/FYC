@@ -1,0 +1,6 @@
+{
+  "name": "SmartCursos",
+  "description": "Plataforma de cursos online de programação para smartphones e navegadores com acompanhamento completo de evolução nas aulas e emissão de certificados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

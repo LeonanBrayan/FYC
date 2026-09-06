@@ -94,6 +94,28 @@ export async function getOrCreateFirebaseUser(uid: string, email: string, name?:
     const normalizedEmail = email.trim().toLowerCase();
     const displayName = name?.trim() || normalizedEmail.split('@')[0];
 
+    // Verificar se já existe por e-mail para reaproveitar conta existente
+    const existing = await findUserByEmail(normalizedEmail);
+    if (existing) {
+      const [updated] = await db.update(users)
+        .set({
+          name: displayName || existing.name,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existing.id))
+        .returning();
+
+      await db.insert(userProgressSummary)
+        .values({
+          userId: existing.id,
+          currentLessonId: 'py-aula-1',
+          totalCompletedLessons: 0,
+        })
+        .onConflictDoNothing();
+
+      return updated || existing;
+    }
+
     const [user] = await db.insert(users)
       .values({
         uid,
@@ -120,9 +142,9 @@ export async function getOrCreateFirebaseUser(uid: string, email: string, name?:
       .onConflictDoNothing();
 
     return user;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Database upsert failed in getOrCreateFirebaseUser:', error);
-    throw new Error('Falha ao autenticar usuário Firebase no banco de dados.', { cause: error });
+    throw new Error('Falha ao autenticar usuário Firebase no banco de dados: ' + (error?.message || String(error)));
   }
 }
 

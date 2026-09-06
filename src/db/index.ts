@@ -10,14 +10,32 @@ declare global {
 // Function to create or retrieve the connection pool using the Object Method.
 export const createPool = () => {
   if (!global._postgresPool) {
-    global._postgresPool = new Pool({
-      host: process.env.SQL_HOST,
-      user: process.env.SQL_USER,
-      password: process.env.SQL_PASSWORD,
-      database: process.env.SQL_DB_NAME,
-      max: 10,
-      connectionTimeoutMillis: 15000,
-    });
+    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+
+    if (connectionString) {
+      const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+      global._postgresPool = new Pool({
+        connectionString,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+        max: 10,
+        connectionTimeoutMillis: 15000,
+      });
+    } else {
+      const host = process.env.SQL_HOST || process.env.PGHOST || 'localhost';
+      const isLocal = host === 'localhost' || host === '127.0.0.1';
+      const useSsl = process.env.SQL_SSL === 'true' || (!isLocal && process.env.NODE_ENV === 'production');
+
+      global._postgresPool = new Pool({
+        host,
+        port: process.env.SQL_PORT ? parseInt(process.env.SQL_PORT, 10) : (process.env.PGPORT ? parseInt(process.env.PGPORT, 10) : 5432),
+        user: process.env.SQL_USER || process.env.PGUSER,
+        password: process.env.SQL_PASSWORD || process.env.PGPASSWORD,
+        database: process.env.SQL_DB_NAME || process.env.PGDATABASE,
+        ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+        max: 10,
+        connectionTimeoutMillis: 15000,
+      });
+    }
 
     // Prevent unhandled pool-level errors from crashing the application
     global._postgresPool.on('error', (err) => {

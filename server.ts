@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
@@ -143,13 +144,13 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
 
       const data = await res.json();
       if (!res.ok) {
-        console.error('[Email Service] Erro na API do Resend:', data);
+        console.error('[Email Service] Erro na API do Resend para envio de código de recuperação.');
         return { success: false, configured: true, provider: 'Resend', error: data.message || 'Falha ao enviar via Resend' };
       }
-      console.log(`[Email Service] E-mail enviado com sucesso via Resend para ${toEmail}. ID: ${data.id}`);
+      console.log('[Email Service] E-mail de recuperação enviado com sucesso via Resend.');
       return { success: true, configured: true, provider: 'Resend' };
     } catch (err: any) {
-      console.error('[Email Service] Falha na requisição ao Resend:', err);
+      console.error('[Email Service] Falha na requisição ao Resend para envio de código de recuperação.');
       return { success: false, configured: true, provider: 'Resend', error: err.message };
     }
   }
@@ -190,10 +191,10 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
         html: htmlContent
       });
 
-      console.log(`[Email Service] E-mail de redefinição enviado com sucesso via SMTP (${host}) para ${toEmail}. MessageId: ${info.messageId}`);
+      console.log('[Email Service] E-mail de redefinição enviado com sucesso via SMTP.');
       return { success: true, configured: true, provider: 'SMTP' };
     } catch (err: any) {
-      console.error('[Email Service] Erro no envio SMTP:', err);
+      console.error('[Email Service] Erro no envio SMTP para recuperação de senha.');
       return { success: false, configured: true, provider: 'SMTP', error: `Falha no envio SMTP: ${err.message}` };
     }
   }
@@ -208,10 +209,10 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
 }
 
 if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET ausente. Defina a variável de ambiente antes de iniciar o servidor.');
+  console.warn('[Security] JWT_SECRET ausente. Usando segredo temporário em memória para evitar crash do deploy. Defina uma variável JWT_SECRET real na Vercel para produção.');
 }
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const TOKEN_EXPIRY = '7d';
 
 const maskEmail = (email?: string | null) => {

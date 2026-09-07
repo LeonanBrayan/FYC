@@ -322,14 +322,18 @@ async function getAllUsersAuditSummary() {
       totalUsers: allUsers.length,
       users: allUsers.map((u) => ({
         id: String(u.id),
-        uid: u.uid,
+        uid: u.uid ? `${u.uid.slice(0, 6)}***` : "redacted",
         name: u.name,
-        email: u.email,
+        email: maskEmail(u.email),
         failedLoginAttempts: u.failedLoginAttempts,
         isLocked: Boolean(u.lockUntil && new Date(u.lockUntil).getTime() > Date.now()),
         lockUntilSecondsRemaining: u.lockUntil && new Date(u.lockUntil).getTime() > Date.now() ? Math.ceil((new Date(u.lockUntil).getTime() - Date.now()) / 1e3) : 0
       })),
-      recentLogs
+      recentLogs: recentLogs.map((log) => ({
+        ...log,
+        details: log.details ? log.details.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, (match) => maskEmail(match)) : "",
+        ipAddress: log.ipAddress ? "redacted" : null
+      }))
     };
   } catch (error) {
     console.error("Failed to get security summary:", error);
@@ -617,13 +621,13 @@ Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
       });
       const data = await res.json();
       if (!res.ok) {
-        console.error("[Email Service] Erro na API do Resend:", data);
+        console.error("[Email Service] Erro na API do Resend para envio de código de recuperação.");
         return { success: false, configured: true, provider: "Resend", error: data.message || "Falha ao enviar via Resend" };
       }
-      console.log(`[Email Service] E-mail enviado com sucesso via Resend para ${toEmail}. ID: ${data.id}`);
+      console.log("[Email Service] E-mail de recuperação enviado com sucesso via Resend.");
       return { success: true, configured: true, provider: "Resend" };
     } catch (err) {
-      console.error("[Email Service] Falha na requisi\xE7\xE3o ao Resend:", err);
+      console.error("[Email Service] Falha na requisi\xE7\xE3o ao Resend para envio de código de recuperação.");
       return { success: false, configured: true, provider: "Resend", error: err.message };
     }
   }
@@ -657,27 +661,33 @@ Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
         text: text2,
         html: htmlContent
       });
-      console.log(`[Email Service] E-mail de redefini\xE7\xE3o enviado com sucesso via SMTP (${host}) para ${toEmail}. MessageId: ${info.messageId}`);
+      console.log("[Email Service] E-mail de redefini\xE7\xE3o enviado com sucesso via SMTP.");
       return { success: true, configured: true, provider: "SMTP" };
     } catch (err) {
-      console.error("[Email Service] Erro no envio SMTP:", err);
+      console.error("[Email Service] Erro no envio SMTP para recuperação de senha.");
       return { success: false, configured: true, provider: "SMTP", error: `Falha no envio SMTP: ${err.message}` };
     }
   }
-  console.warn(`[Email Service] \u26A0\uFE0F Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. C\xF3digo gerado para ${toEmail}: ${resetCode}`);
+  console.warn("[Email Service] \u26A0\uFE0F Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. Operação de reset iniciada sem envio externo.");
   return {
     success: false,
     configured: false,
     error: "Servidor de e-mail n\xE3o configurado: adicione suas credenciais SMTP nas Configura\xE7\xF5es do projeto."
   };
 }
-var JWT_SECRET = process.env.JWT_SECRET || "smartcursos-jwt-supabase-secure-token-2026";
+var JWT_SECRET = process.env.JWT_SECRET || require("node:crypto").randomBytes(32).toString("hex");
 var TOKEN_EXPIRY = "7d";
+var maskEmail = (email) => {
+  if (!email) return "redacted";
+  const [localPart, domainPart] = email.split("@");
+  if (!domainPart) return "redacted";
+  const visibleLocal = localPart.length <= 2 ? `${localPart[0] || ""}*` : `${localPart.slice(0, 2)}***`;
+  return `${visibleLocal}@${domainPart}`;
+};
 var sanitizeUser = (user) => ({
   id: String(user.id),
-  uid: user.uid,
   name: user.name,
-  email: user.email,
+  email: maskEmail(user.email),
   role: user.role,
   createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : (/* @__PURE__ */ new Date()).toISOString(),
   bio: user.bio || "",

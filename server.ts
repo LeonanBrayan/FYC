@@ -4,7 +4,6 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
-import { createServer as createViteServer } from 'vite';
 
 // Cloud SQL (PostgreSQL) Helpers & Schema
 import {
@@ -32,6 +31,35 @@ import { getSupabaseClient } from './src/lib/supabase.ts';
 
 const app = express();
 const PORT = 3000;
+
+// CORS e cabeçalhos para suporte a Vercel e requisições externas
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// Normalização de rotas para Serverless da Vercel
+// Caso a Vercel redirecione para /auth/login sem o prefixo /api
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api') && (
+    req.url.startsWith('/auth') ||
+    req.url.startsWith('/database') ||
+    req.url.startsWith('/profile') ||
+    req.url.startsWith('/lessons') ||
+    req.url.startsWith('/quiz') ||
+    req.url.startsWith('/certificates') ||
+    req.url.startsWith('/admin') ||
+    req.url.startsWith('/user')
+  )) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
 
 app.use(express.json());
 
@@ -839,6 +867,7 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

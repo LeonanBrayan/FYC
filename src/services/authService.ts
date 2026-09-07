@@ -212,10 +212,12 @@ export const authService = {
   },
 
   // --------------------------------------------------------------------------
-  // LOGIN NO CLOUD SQL
+  // LOGIN NO BANCO DE DADOS (SUPABASE POSTGRESQL)
   // --------------------------------------------------------------------------
   async login(email: string, password: string) {
     const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Tentar autenticação via API backend no Supabase PostgreSQL
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -223,10 +225,11 @@ export const authService = {
         body: JSON.stringify({ email: cleanEmail, password })
       });
 
-      if (!isUnavailable(res)) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
         const data = await res.json();
         if (!res.ok) {
-          const err = new Error(data.error || 'Erro no login.');
+          const err = new Error(data.error || 'Credenciais inválidas.');
           (err as any).status = res.status;
           (err as any).isLocked = data.isLocked;
           (err as any).remainingSeconds = data.remainingSeconds;
@@ -237,17 +240,60 @@ export const authService = {
         return data;
       }
     } catch (err: any) {
-      if (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch')) {
+      // Se for um erro HTTP de negócio retornado pelo servidor (401, 400, 429), propagar imediatamente!
+      if (err.status || (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError'))) {
         throw err;
+      }
+      console.warn('API /api/auth/login inacessível no momento, tentando fallback Supabase:', err);
+    }
+
+    // 2. Fallback de autenticação direta via Supabase Auth Client (caso deploy estático)
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: sbData, error: sbError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password
+        });
+
+        if (sbError) {
+          console.warn('Supabase Auth error:', sbError.message);
+          if (sbError.message.toLowerCase().includes('invalid login credentials')) {
+            throw new Error('Senha incorreta. Verifique suas credenciais.');
+          }
+        } else if (sbData?.user) {
+          const user: UserProfile = {
+            id: sbData.user.id,
+            name: sbData.user.user_metadata?.name || cleanEmail.split('@')[0],
+            email: cleanEmail,
+            role: 'student',
+            createdAt: sbData.user.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+            bio: 'Estudante cadastrado no Supabase',
+            customNotes: ''
+          };
+          const progress: UserProgress = {
+            completedLessons: ['py-aula-1'],
+            currentLessonId: 'py-aula-1',
+            quizScores: {},
+            studentName: user.name
+          };
+          const token = sbData.session?.access_token || `sb-token-${Date.now()}`;
+          this.saveSession(token, user);
+          return { token, user, progress };
+        }
+      }
+    } catch (sbErr: any) {
+      if (sbErr.message && !sbErr.message.includes('fetch')) {
+        throw sbErr;
       }
     }
 
-    // Fallback local caso offline
+    // 3. Fallback de contingência local
     const accounts = getLocalAccounts();
     const account = accounts[cleanEmail];
 
     if (!account) {
-      throw new Error('E-mail ou senha incorretos.');
+      throw new Error('Não foi possível validar o acesso com o banco de dados no Supabase. Verifique se o backend está ativo na Vercel.');
     }
 
     if (account.lockUntil && Date.now() < account.lockUntil) {
@@ -272,7 +318,7 @@ export const authService = {
       }
 
       saveLocalAccounts(accounts);
-      const err = new Error('E-mail ou senha incorretos.');
+      const err = new Error('Senha incorreta.');
       (err as any).attemptsLeft = attemptsLeft;
       throw err;
     }

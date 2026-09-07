@@ -238,6 +238,11 @@ export const authService = {
         }
         this.saveSession(data.token, data.user);
         return data;
+      } else if (!res.ok) {
+        // Resposta de erro do servidor em formato HTML ou texto (ex: erro 500 na Vercel)
+        const errorText = await res.text().catch(() => '');
+        console.error('Erro no servidor /api/auth/login:', res.status, errorText);
+        throw new Error(`Erro no servidor (${res.status}). O serviço de autenticação está temporariamente indisponível.`);
       }
     } catch (err: any) {
       // Se for um erro HTTP de negócio retornado pelo servidor (401, 400, 429), propagar imediatamente!

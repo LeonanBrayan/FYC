@@ -269,14 +269,14 @@ app.get('/api/health', (req, res) => {
 // Status detalhado do Supabase e Conformidade com Segurança da Informação (ISO 27001 / LGPD)
 app.get('/api/database/status', async (req, res) => {
   try {
-    const summary = await getAllUsersAuditSummary();
     const isSupabaseConfigured = Boolean(
       process.env.SUPABASE_DATABASE_URL ||
       process.env.SUPABASE_DB_URL ||
-      process.env.SUPABASE_URL ||
+      process.env.DATABASE_URL ||
       process.env.SUPABASE_HOST
     );
     res.json({
+      status: 'ok',
       engine: isSupabaseConfigured ? 'PostgreSQL on Supabase' : 'PostgreSQL (Supabase Ready)',
       provider: 'Supabase',
       connectionPool: 'pg.Pool active (Supavisor / Direct SSL)',
@@ -288,8 +288,7 @@ app.get('/api/database/status', async (req, res) => {
         auditLogging: 'Security Events persisted to security_audit_logs table',
         rowLevelSecurity: 'RLS policies enforced on all tables',
         dataEncryption: 'TLS 1.3 / SSL encrypted connection'
-      },
-      stats: summary
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Falha ao obter status do banco de dados.' });
@@ -668,8 +667,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       if (!emailResult.success) {
         if (!emailResult.configured) {
           return res.status(503).json({
-            error: 'Servidor de e-mail não configurado: adicione suas credenciais SMTP nas Configurações do projeto para envio real.',
-            debugCode: code // Facilitar teste caso não tenha SMTP configurado
+            error: 'Servidor de e-mail não configurado: adicione suas credenciais SMTP nas variáveis de ambiente da Vercel para envio real.'
           });
         } else {
           return res.status(502).json({
@@ -745,10 +743,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// 12. AUDITORIA DE SEGURANÇA (Relatório de Segurança da Informação)
+// 12. AUDITORIA DE SEGURANÇA (Relatório restrito a Administradores)
 // ----------------------------------------------------------------------------
-app.get('/api/auth/security-stats', async (req, res) => {
+app.get('/api/auth/security-stats', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Acesso restrito apenas a administradores.' });
+    }
     const stats = await getAllUsersAuditSummary();
     res.json(stats);
   } catch (error: any) {
@@ -785,7 +786,16 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
+// Em ambientes serverless (como Vercel e AWS Lambda), a porta 3000 não deve ser vinculada
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.VERCEL_ENV ||
+  process.env.NOW_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+);
+
+if (!isServerless) {
   startServer();
 }
 

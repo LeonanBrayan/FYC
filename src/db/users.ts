@@ -193,13 +193,26 @@ export async function markResetTokenUsed(tokenId: number) {
 // Trilha de Auditoria de Segurança (ISO 27001 / LGPD)
 // ----------------------------------------------------------------------------
 
+const maskEmail = (email?: string | null) => {
+  if (!email) return 'redacted';
+  const [userPart, domainPart] = email.split('@');
+  if (!domainPart) return 'redacted';
+  const maskedUser = userPart.length <= 2 ? `${userPart[0] || ''}*` : `${userPart.slice(0, 2)}***`;
+  return `${maskedUser}@${domainPart}`;
+};
+
+const sanitizeAuditText = (value?: string | null) => {
+  if (!value) return '';
+  return value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, (match) => maskEmail(match));
+};
+
 export async function logSecurityAudit(userId: number | null, action: string, details?: string, ipAddress?: string) {
   try {
     await db.insert(securityAuditLogs).values({
       userId,
       action,
-      details: details || '',
-      ipAddress: ipAddress || '127.0.0.1',
+      details: sanitizeAuditText(details) || '',
+      ipAddress: ipAddress ? 'redacted' : '127.0.0.1',
     });
   } catch (error) {
     // Audit log should never crash the main flow, but we record it
@@ -228,16 +241,20 @@ export async function getAllUsersAuditSummary() {
       totalUsers: allUsers.length,
       users: allUsers.map(u => ({
         id: String(u.id),
-        uid: u.uid,
+        uid: u.uid.slice(0, 6) + '***',
         name: u.name,
-        email: u.email,
+        email: maskEmail(u.email),
         failedLoginAttempts: u.failedLoginAttempts,
         isLocked: Boolean(u.lockUntil && new Date(u.lockUntil).getTime() > Date.now()),
         lockUntilSecondsRemaining: u.lockUntil && new Date(u.lockUntil).getTime() > Date.now()
           ? Math.ceil((new Date(u.lockUntil).getTime() - Date.now()) / 1000)
           : 0,
       })),
-      recentLogs,
+      recentLogs: recentLogs.map((log) => ({
+        ...log,
+        details: sanitizeAuditText(log.details || ''),
+        ipAddress: log.ipAddress ? 'redacted' : null,
+      })),
     };
   } catch (error) {
     console.error('Failed to get security summary:', error);

@@ -25,10 +25,34 @@ const LOCAL_RESET_CODES_KEY = 'smartcursos_local_reset_codes';
 // Helper para contingência caso a rota da API esteja temporariamente indisponível
 interface StoredAccount {
   user: UserProfile;
-  passwordHashOrPlain: string;
+  passwordHash: string;
   progress: UserProgress;
   failedAttempts: number;
   lockUntil?: number;
+}
+
+async function hashLocalPassword(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function maskEmail(email?: string | null): string {
+  if (!email) return 'redacted';
+  const [localPart, domainPart] = email.split('@');
+  if (!domainPart) return 'redacted';
+  const visibleLocal = localPart.length <= 2 ? `${localPart[0] || ''}*` : `${localPart.slice(0, 2)}***`;
+  return `${visibleLocal}@${domainPart}`;
+}
+
+function sanitizeStoredUser(user: UserProfile | null): UserProfile | null {
+  if (!user) return null;
+  return {
+    ...user,
+    email: maskEmail(user.email),
+    bio: user.bio || '',
+    customNotes: user.customNotes || '',
+  };
 }
 
 function getLocalAccounts(): Record<string, StoredAccount> {
@@ -69,7 +93,8 @@ export const authService = {
   getStoredUser(): UserProfile | null {
     try {
       const u = localStorage.getItem(USER_KEY);
-      return u ? JSON.parse(u) : null;
+      const parsed = u ? JSON.parse(u) : null;
+      return parsed ? sanitizeStoredUser(parsed) : null;
     } catch {
       return null;
     }
@@ -78,7 +103,7 @@ export const authService = {
   saveSession(token: string, user: UserProfile) {
     try {
       localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
+      localStorage.setItem(USER_KEY, JSON.stringify(sanitizeStoredUser(user)));
     } catch (e) {
       console.error('Failed to store session in localStorage:', e);
     }
@@ -198,15 +223,16 @@ export const authService = {
       studentName: name.trim()
     };
 
+    const passwordHash = await hashLocalPassword(password);
     accounts[cleanEmail] = {
       user: newUser,
-      passwordHashOrPlain: password,
+      passwordHash,
       progress: newProgress,
       failedAttempts: 0
     };
     saveLocalAccounts(accounts);
 
-    const token = `static-jwt-${btoa(cleanEmail)}-${Date.now()}`;
+    const token = `static-jwt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     this.saveSession(token, newUser);
     return { token, user: newUser, progress: newProgress };
   },
@@ -309,7 +335,8 @@ export const authService = {
       throw err;
     }
 
-    if (account.passwordHashOrPlain !== password) {
+    const localPasswordHash = await hashLocalPassword(password);
+    if (account.passwordHash !== localPasswordHash) {
       account.failedAttempts = (account.failedAttempts || 0) + 1;
       const attemptsLeft = Math.max(0, 5 - account.failedAttempts);
 
@@ -332,7 +359,7 @@ export const authService = {
     delete account.lockUntil;
     saveLocalAccounts(accounts);
 
-    const token = `static-jwt-${btoa(cleanEmail)}-${Date.now()}`;
+    const token = `static-jwt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     this.saveSession(token, account.user);
     return { token, user: account.user, progress: account.progress };
   },
@@ -401,7 +428,7 @@ export const authService = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao atualizar perfil.');
         if (data.user) {
-          localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+          localStorage.setItem(USER_KEY, JSON.stringify(sanitizeStoredUser(data.user)));
         }
         return data;
       }

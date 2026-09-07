@@ -112,7 +112,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </h1>
               </div>
               <p className="text-blue-200 text-sm mt-0.5 flex items-center gap-2">
-                <span>{user.email}</span>
+                <span>{user.email ? user.email.replace(/(.{2}).+(@.*)/, '$1***$2') : 'redacted'}</span>
                 <span className="text-blue-400">•</span>
                 <span className="text-xs text-blue-300">Aluno</span>
               </p>
@@ -384,7 +384,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 <input
                   type="email"
                   disabled
-                  value={user.email}
+                  value={user.email ? user.email.replace(/(.{2}).+(@.*)/, '$1***$2') : 'redacted'}
                   className="w-full px-3.5 py-2.5 text-sm bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-xl cursor-not-allowed"
                 />
               </div>

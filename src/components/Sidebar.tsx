@@ -129,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                     <div className="overflow-hidden">
                       <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{currentUser.name}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{currentUser.email}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{currentUser.email ? currentUser.email.replace(/(.{2}).+(@.*)/, '$1***$2') : 'redacted'}</p>
                     </div>
                   </div>
                   <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">

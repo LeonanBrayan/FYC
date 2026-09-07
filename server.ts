@@ -29,12 +29,31 @@ import { getSupabaseClient } from './src/lib/supabase.ts';
 
 const app = express();
 const PORT = 3000;
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  /^https:\/\/.*\.vercel\.app$/i
+];
+
+const isAllowedOrigin = (origin: string | undefined) => {
+  if (!origin) return true;
+  if (allowedOrigins.some((allowed) => typeof allowed === 'string' ? allowed === origin : allowed.test(origin))) {
+    return true;
+  }
+  return false;
+};
 
 // CORS e cabeçalhos para suporte a Vercel e requisições externas
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || 'http://localhost:5173');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -180,7 +199,7 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
   }
 
   // 3. Fallback: No real email service configured in environment
-  console.warn(`[Email Service] ⚠️ Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. Código gerado para ${toEmail}: ${resetCode}`);
+  console.warn('[Email Service] ⚠️ Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. Operação de reset iniciada sem envio externo.');
   return {
     success: false,
     configured: false,
@@ -188,16 +207,26 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
   };
 }
 
-// JWT Secret from env or fallback
-const JWT_SECRET = process.env.JWT_SECRET || 'smartcursos-jwt-supabase-secure-token-2026';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET ausente. Defina a variável de ambiente antes de iniciar o servidor.');
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
 const TOKEN_EXPIRY = '7d';
+
+const maskEmail = (email?: string | null) => {
+  if (!email) return 'redacted';
+  const [localPart, domainPart] = email.split('@');
+  if (!domainPart) return 'redacted';
+  const visibleLocal = localPart.length <= 2 ? `${localPart[0] || ''}*` : `${localPart.slice(0, 2)}***`;
+  return `${visibleLocal}@${domainPart}`;
+};
 
 // Helper: Public user profile without sensitive credentials
 const sanitizeUser = (user: any) => ({
   id: String(user.id),
-  uid: user.uid,
   name: user.name,
-  email: user.email,
+  email: maskEmail(user.email),
   role: user.role,
   createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
   bio: user.bio || '',

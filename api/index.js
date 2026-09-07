@@ -532,10 +532,22 @@ function getSupabaseClient() {
 // server.ts
 var app = express();
 var PORT = 3e3;
+const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000", /^https:\/\/.*\.vercel\.app$/i];
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.some((allowed) => typeof allowed === "string" ? allowed === origin : allowed.test(origin))) {
+    return true;
+  }
+  return false;
+};
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "http://localhost:5173");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }

@@ -516,6 +516,15 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Login error:', error);
+
+    const isDatabaseMissing = !process.env.SUPABASE_DATABASE_URL && !process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL && !process.env.POSTGRES_URL;
+
+    if (isDatabaseMissing) {
+      return res.status(503).json({
+        error: 'Serviço de autenticação indisponível. O banco de dados não foi configurado no ambiente da Vercel.'
+      });
+    }
+
     return res.status(500).json({ error: 'Erro ao autenticar usuário no banco de dados.' });
   }
 });

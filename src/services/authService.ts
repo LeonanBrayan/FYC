@@ -260,6 +260,12 @@ export const authService = {
           (err as any).isLocked = data.isLocked;
           (err as any).remainingSeconds = data.remainingSeconds;
           (err as any).attemptsLeft = data.attemptsLeft;
+
+          if (res.status === 401 || res.status === 400 || res.status === 429) {
+            throw err;
+          }
+
+          console.warn('Backend de autenticação indisponível, tentando fallback:', { status: res.status, message: data.error });
           throw err;
         }
         this.saveSession(data.token, data.user);
@@ -268,13 +274,29 @@ export const authService = {
         // Resposta de erro do servidor em formato HTML ou texto (ex: erro 500 na Vercel)
         const errorText = await res.text().catch(() => '');
         console.error('Erro no servidor /api/auth/login:', res.status, errorText);
+
+        if (res.status === 401 || res.status === 400 || res.status === 429) {
+          throw new Error(`Erro de autenticação (${res.status}).`);
+        }
+
         throw new Error(`Erro no servidor (${res.status}). O serviço de autenticação está temporariamente indisponível.`);
       }
     } catch (err: any) {
-      // Se for um erro HTTP de negócio retornado pelo servidor (401, 400, 429), propagar imediatamente!
-      if (err.status || (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError'))) {
-        throw err;
+      const shouldFallback =
+        err?.status === 500 ||
+        err?.status === 503 ||
+        err?.message?.includes('temporariamente indisponível') ||
+        err?.message?.includes('Failed to fetch') ||
+        err?.message?.includes('NetworkError') ||
+        err?.message?.includes('fetch');
+
+      // Se o backend estiver indisponível no Vercel, tenta o fallback robusto em vez de bloquear o login.
+      if (!shouldFallback) {
+        if (err.status || (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError'))) {
+          throw err;
+        }
       }
+
       console.warn('API /api/auth/login inacessível no momento, tentando fallback Supabase:', err);
     }
 

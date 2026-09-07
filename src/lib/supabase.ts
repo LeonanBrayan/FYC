@@ -8,8 +8,9 @@ export function getSupabaseUrl(): string {
   return (
     process.env.SUPABASE_URL ||
     process.env.VITE_SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
-    ''
+    'https://ubkjhqntmpphajgcscmd.supabase.co'
   );
 }
 
@@ -17,8 +18,10 @@ export function getSupabaseAnonKey(): string {
   return (
     process.env.SUPABASE_ANON_KEY ||
     process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
-    ''
+    'sb_publishable_3f2xNTPe5-mrDoFNffFfow_eee6W1ZE'
   );
 }
 

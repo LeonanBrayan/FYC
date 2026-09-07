@@ -1,6 +1,5 @@
 import { UserProfile, UserProgress } from '../types';
-import { auth, googleAuthProvider } from '../lib/firebase';
-import { signInWithPopup } from 'firebase/auth';
+import { getSupabaseClient } from '../lib/supabase.ts';
 
 export interface AuthState {
   token: string | null;
@@ -99,28 +98,6 @@ export const authService = {
   // --------------------------------------------------------------------------
   async register(name: string, email: string, password: string) {
     const cleanEmail = email.toLowerCase().trim();
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: cleanEmail, password })
-      });
-
-      if (!isUnavailable(res)) {
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Erro ao registrar.');
-        }
-        this.saveSession(data.token, data.user);
-        return data;
-      }
-    } catch (err: any) {
-      if (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch')) {
-        throw err;
-      }
-    }
-
-    // Fallback local
     if (!name.trim() || !cleanEmail || !password) {
       throw new Error('Todos os campos são obrigatórios.');
     }
@@ -128,6 +105,76 @@ export const authService = {
       throw new Error('A senha deve conter no mínimo 6 caracteres.');
     }
 
+    // 1. Tentar registrar no backend (PostgreSQL no Supabase via API)
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), email: cleanEmail, password })
+      });
+
+      // Se a resposta for JSON válida (mesmo com erro 400 ou 409)
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Erro ao registrar usuário.');
+        }
+        this.saveSession(data.token, data.user);
+        return data;
+      }
+    } catch (err: any) {
+      // Se for um erro de validação ou de e-mail duplicado vindo do banco, propagar imediatamente
+      if (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch')) {
+        throw err;
+      }
+      console.warn('Backend API inacessível, tentando cadastro direto no Supabase:', err);
+    }
+
+    // 2. Se a rota de API não respondeu (ex: hospedagem estática pura sem serverless),
+    // tenta cadastrar diretamente no Supabase Auth via SDK
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: sbData, error: sbError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: { name: name.trim() }
+          }
+        });
+
+        if (sbError) {
+          if (sbError.message.toLowerCase().includes('already registered')) {
+            throw new Error('Este e-mail já está cadastrado no Supabase.');
+          }
+          console.warn('Supabase Auth signUp aviso:', sbError.message);
+        } else if (sbData.user) {
+          const userProfile: UserProfile = {
+            id: sbData.user.id,
+            name: name.trim(),
+            email: cleanEmail,
+            role: 'student',
+            createdAt: new Date().toISOString().split('T')[0],
+            bio: 'Estudante SmartCursos',
+            customNotes: ''
+          };
+          const token = sbData.session?.access_token || `sb_${Date.now()}`;
+          this.saveSession(token, userProfile);
+          return {
+            user: userProfile,
+            token,
+            message: 'Cadastro efetuado com sucesso no Supabase!'
+          };
+        }
+      }
+    } catch (sbEx: any) {
+      if (sbEx.message && !sbEx.message.includes('fetch')) {
+        throw sbEx;
+      }
+    }
+
+    // 3. Fallback de contingência local se absolutamente nada estiver acessível
     const accounts = getLocalAccounts();
     if (accounts[cleanEmail]) {
       throw new Error('Este e-mail já está cadastrado.');
@@ -237,158 +284,6 @@ export const authService = {
     const token = `static-jwt-${btoa(cleanEmail)}-${Date.now()}`;
     this.saveSession(token, account.user);
     return { token, user: account.user, progress: account.progress };
-  },
-
-  // --------------------------------------------------------------------------
-  // LOGIN COM GOOGLE (FIREBASE AUTH + COMPATIBILIDADE UNIVERSAL VERCEL)
-  // --------------------------------------------------------------------------
-  async loginWithGoogle(fallbackInfo?: { email?: string; name?: string }) {
-    try {
-      const result = await signInWithPopup(auth, googleAuthProvider);
-      const idToken = await result.user.getIdToken();
-      const googleUser = result.user;
-
-      // Sincronizar com backend se disponível
-      try {
-        const res = await fetch('/api/auth/google-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            idToken,
-            email: googleUser.email,
-            name: googleUser.displayName
-          })
-        });
-
-        if (!isUnavailable(res)) {
-          const data = await res.json();
-          if (res.ok && data.token && data.user) {
-            this.saveSession(data.token, data.user);
-            return data;
-          }
-        }
-      } catch {
-        // Backend indisponível (ex: hospedagem estática na Vercel)
-      }
-
-      // Sessão resiliente client-side caso API backend esteja offline
-      const email = (googleUser.email || fallbackInfo?.email || 'aluno.google@smartcursos.com').toLowerCase().trim();
-      const name = googleUser.displayName || fallbackInfo?.name || email.split('@')[0];
-      const user: UserProfile = {
-        id: `google-${googleUser.uid}`,
-        name: name,
-        email: email,
-        role: 'student',
-        createdAt: new Date().toISOString().split('T')[0],
-        bio: 'Aluno autenticado via Conta Google',
-        customNotes: ''
-      };
-
-      const progress: UserProgress = {
-        completedLessons: ['py-aula-1'],
-        currentLessonId: 'py-aula-1',
-        quizScores: {},
-        studentName: user.name
-      };
-
-      const token = `google-jwt-${btoa(email)}-${Date.now()}`;
-      this.saveSession(token, user);
-      return { token, user, progress };
-    } catch (error: any) {
-      console.warn('Firebase popup notice:', error?.code || error?.message);
-
-      const isUnauthorizedDomain =
-        error?.code === 'auth/unauthorized-domain' ||
-        (error?.message && error.message.includes('unauthorized-domain')) ||
-        error?.code === 'auth/operation-not-allowed' ||
-        error?.code === 'auth/configuration-not-found';
-
-      if (isUnauthorizedDomain) {
-        // Se já temos o e-mail preenchido, loga imediatamente sem erro
-        if (fallbackInfo?.email && fallbackInfo.email.includes('@')) {
-          return this.loginWithGoogleDirect(fallbackInfo.email, fallbackInfo.name);
-        }
-
-        // Caso contrário, sinalizar para a interface abrir a conexão com Google sem travar com erro
-        const customErr: any = new Error('DOMINIO_NAO_AUTORIZADO');
-        customErr.isUnauthorizedDomain = true;
-        customErr.currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'vercel.app';
-        throw customErr;
-      }
-
-      if (error?.code === 'auth/popup-closed-by-user') {
-        throw new Error('A autenticação com o Google foi cancelada.');
-      }
-
-      throw new Error(error?.message || 'Falha ao autenticar com o Google.');
-    }
-  },
-
-  // Login direto com Conta Google para qualquer domínio (Vercel, Netlify, domínios próprios)
-  async loginWithGoogleDirect(email: string, name?: string) {
-    const cleanEmail = email.toLowerCase().trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      throw new Error('Informe um e-mail válido da sua conta Google.');
-    }
-
-    const studentName = name?.trim() || cleanEmail.split('@')[0].replace(/[._-]/g, ' ');
-    const formattedName = studentName.charAt(0).toUpperCase() + studentName.slice(1);
-
-    // 1. Tentar sincronizar com backend se estiver rodando
-    try {
-      const res = await fetch('/api/auth/google-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          name: formattedName,
-          uid: `universal-g-${btoa(cleanEmail).replace(/=/g, '').slice(0, 20)}`
-        })
-      });
-
-      if (!isUnavailable(res)) {
-        const data = await res.json();
-        if (res.ok && data.token && data.user) {
-          this.saveSession(data.token, data.user);
-          return data;
-        }
-      }
-    } catch {
-      // Backend offline ou estático na Vercel
-    }
-
-    // 2. Fallback de persistência client-side
-    const accounts = getLocalAccounts();
-    const existing = accounts[cleanEmail];
-
-    const user: UserProfile = existing?.user || {
-      id: `google-${Date.now()}`,
-      name: formattedName,
-      email: cleanEmail,
-      role: 'student',
-      createdAt: new Date().toISOString().split('T')[0],
-      bio: 'Aluno autenticado com Conta Google',
-      customNotes: ''
-    };
-
-    const progress: UserProgress = existing?.progress || {
-      completedLessons: ['py-aula-1'],
-      currentLessonId: 'py-aula-1',
-      quizScores: {},
-      studentName: user.name
-    };
-
-    accounts[cleanEmail] = {
-      user,
-      passwordHashOrPlain: 'google-oauth-managed',
-      progress,
-      failedAttempts: 0
-    };
-    saveLocalAccounts(accounts);
-
-    const token = `google-jwt-${btoa(cleanEmail)}-${Date.now()}`;
-    this.saveSession(token, user);
-    return { token, user, progress };
   },
 
   // --------------------------------------------------------------------------

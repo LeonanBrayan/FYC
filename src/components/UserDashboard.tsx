@@ -433,10 +433,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {new Date(user.createdAt).toLocaleDateString()}
                   </span>
                 </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Banco de Dados:</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                    Supabase (PostgreSQL)
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Tabela:</span>
+                  <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300">public.users</span>
+                </div>
                 <div className="flex justify-between py-1.5">
                   <span className="text-slate-500">Status da Conta:</span>
                   <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Ativa
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Ativa no Supabase
                   </span>
                 </div>
               </div>

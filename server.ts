@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import jwt from 'jsonwebtoken';
@@ -27,6 +28,7 @@ import {
 } from './src/db/progress.ts';
 import { seedInitialDatabase } from './src/db/seed.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
+import { getSupabaseClient } from './src/lib/supabase.ts';
 
 const app = express();
 const PORT = 3000;
@@ -320,7 +322,7 @@ app.post('/api/auth/register', async (req, res) => {
     // Hash criptográfico da senha (Bcrypt 10 rounds)
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Criar usuário no Cloud SQL com inicialização de progresso
+    // Criar usuário no PostgreSQL (Supabase public.users) com inicialização de progresso
     const newUser = await createUserWithPassword({
       name: name.trim(),
       email: normalizedEmail,
@@ -328,7 +330,23 @@ app.post('/api/auth/register', async (req, res) => {
       role: 'student'
     });
 
-    await logSecurityAudit(newUser.id, 'USER_REGISTER_SUCCESS', `Novo usuário registrado no Cloud SQL: ${normalizedEmail}`, clientIp);
+    // Sincronizar com Supabase Auth (auth.users)
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        await supabase.auth.signUp({
+          email: normalizedEmail,
+          password: password,
+          options: {
+            data: { name: name.trim() }
+          }
+        });
+      }
+    } catch (sbErr) {
+      console.warn('Supabase Auth user sync notice:', sbErr);
+    }
+
+    await logSecurityAudit(newUser.id, 'USER_REGISTER_SUCCESS', `Novo usuário registrado no Supabase: ${normalizedEmail}`, clientIp);
 
     // Carregar progresso inicial
     const progress = await getUserFullProgress(newUser.id);
@@ -402,10 +420,10 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // Se a senha estiver nula (caso o usuário tenha sido criado via Google OAuth), instruir login via Google
+    // Se a senha estiver nula, instruir recuperação de senha
     if (!user.passwordHash) {
       return res.status(400).json({
-        error: 'Esta conta foi criada via Google. Por favor, clique em "Entrar com Google".'
+        error: 'Esta conta não possui senha definida. Utilize a opção "Esqueci minha senha" para cadastrar uma nova senha.'
       });
     }
 

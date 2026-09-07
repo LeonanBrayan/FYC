@@ -43,7 +43,7 @@ export async function seedInitialDatabase() {
         passwordHash,
         role: 'student',
         bio: 'Estudante de Python e Desenvolvimento Web',
-        customNotes: 'Minhas anotações privadas salvas no Cloud SQL PostgreSQL.',
+        customNotes: 'Minhas anotações privadas salvas no Supabase PostgreSQL.',
         failedLoginAttempts: 0,
       }).returning();
       leonanId = leonan.id;
@@ -87,7 +87,7 @@ export async function seedInitialDatabase() {
         passwordHash,
         role: 'student',
         bio: 'Estudante de desenvolvimento frontend',
-        customNotes: 'Anotações sigilosas de Mariana no Cloud SQL.',
+        customNotes: 'Anotações sigilosas de Mariana no Supabase.',
         failedLoginAttempts: 0,
       }).returning();
 
@@ -111,8 +111,8 @@ export async function seedInitialDatabase() {
       }
     }
 
-    console.log('[Cloud SQL] Banco de dados semeado com sucesso!');
+    console.log('[Supabase] Banco de dados semeado com sucesso!');
   } catch (error) {
-    console.error('[Cloud SQL Seed Error]:', error);
+    console.error('[Supabase Seed Error]:', error);
   }
 }

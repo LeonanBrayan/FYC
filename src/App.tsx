@@ -154,7 +154,7 @@ export default function App() {
           notes
         });
       } catch (err) {
-        console.error('Failed to record lesson evolution to Cloud SQL:', err);
+        console.error('Failed to record lesson evolution to database:', err);
       }
     }
   };

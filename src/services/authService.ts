@@ -641,7 +641,7 @@ export const authService = {
     } catch {}
     return {
       totalUsers: 2,
-      database: 'Google Cloud SQL (PostgreSQL)',
+      database: 'Supabase (PostgreSQL)',
       bruteForceProtection: 'Active (5 attempts / 15 min lock)'
     };
   }

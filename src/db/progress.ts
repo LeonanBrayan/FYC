@@ -3,7 +3,7 @@ import { db } from './index.ts';
 import { lessonProgress, userProgressSummary, users } from './schema.ts';
 
 // ----------------------------------------------------------------------------
-// Funções de Gestão de Progresso e Desempenho no Cloud SQL (PostgreSQL)
+// Funções de Gestão de Progresso e Desempenho no Supabase (PostgreSQL)
 // ----------------------------------------------------------------------------
 
 export async function getUserFullProgress(userId: number) {

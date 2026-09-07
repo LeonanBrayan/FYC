@@ -10,10 +10,10 @@ const connectionString =
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URL;
 
-const sqlHost = process.env.SUPABASE_HOST || process.env.SQL_HOST || "localhost";
-const sqlDbName = process.env.SUPABASE_DB_NAME || process.env.SQL_DB_NAME || "postgres";
-const user = process.env.SUPABASE_USER || process.env.SQL_ADMIN_USER || process.env.SQL_USER || "postgres";
-const password = process.env.SUPABASE_PASSWORD || process.env.SQL_ADMIN_PASSWORD || process.env.SQL_PASSWORD || "";
+const sqlHost = process.env.SUPABASE_HOST || process.env.PGHOST || "localhost";
+const sqlDbName = process.env.SUPABASE_DB_NAME || process.env.PGDATABASE || "postgres";
+const user = process.env.SUPABASE_USER || process.env.PGUSER || "postgres";
+const password = process.env.SUPABASE_PASSWORD || process.env.PGPASSWORD || "";
 
 export default defineConfig({
   schema: "./src/db/schema.ts",

@@ -94,7 +94,7 @@ export const authService = {
   },
 
   // --------------------------------------------------------------------------
-  // CADASTRO NO CLOUD SQL
+  // CADASTRO NO SUPABASE (POSTGRESQL)
   // --------------------------------------------------------------------------
   async register(name: string, email: string, password: string) {
     const cleanEmail = email.toLowerCase().trim();
@@ -333,7 +333,7 @@ export const authService = {
   },
 
   // --------------------------------------------------------------------------
-  // CARREGAR MEU PERFIL (CLOUD SQL COM ISOLAMENTO STRICT ANTI-IDOR)
+  // CARREGAR MEU PERFIL (SUPABASE COM ISOLAMENTO STRICT ANTI-IDOR)
   // --------------------------------------------------------------------------
   async getMyProfile() {
     const token = this.getToken();
@@ -421,7 +421,7 @@ export const authService = {
   },
 
   // --------------------------------------------------------------------------
-  // GRAVAR EVOLUÇÃO ESPECÍFICA DE AULA E DESEMPENHO NO QUIZ (CLOUD SQL)
+  // GRAVAR EVOLUÇÃO ESPECÍFICA DE AULA E DESEMPENHO NO QUIZ (SUPABASE POSTGRESQL)
   // Atende: "desempenho nas aulas, quais aulas já foram assistidas"
   // --------------------------------------------------------------------------
   async recordLessonEvolution(params: {
@@ -561,7 +561,7 @@ export const authService = {
   },
 
   // --------------------------------------------------------------------------
-  // STATUS E AUDITORIA DO BANCO DE DADOS CLOUD SQL
+  // STATUS E AUDITORIA DO BANCO DE DADOS SUPABASE (POSTGRESQL)
   // --------------------------------------------------------------------------
   async getDatabaseStatus() {
     try {

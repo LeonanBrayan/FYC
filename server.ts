@@ -5,12 +5,11 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
 
-// Cloud SQL (PostgreSQL) Helpers & Schema
+// Supabase (PostgreSQL) Helpers & Schema
 import {
   findUserByEmail,
   findUserById,
   createUserWithPassword,
-  getOrCreateFirebaseUser,
   updateUserLoginAttempts,
   updateUserProfile,
   updateUserPassword,
@@ -26,7 +25,6 @@ import {
   bulkSyncUserProgress
 } from './src/db/progress.ts';
 import { seedInitialDatabase } from './src/db/seed.ts';
-import { adminAuth } from './src/lib/firebase-admin.ts';
 import { getSupabaseClient } from './src/lib/supabase.ts';
 
 const app = express();
@@ -191,7 +189,7 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
 }
 
 // JWT Secret from env or fallback
-const JWT_SECRET = process.env.JWT_SECRET || 'smartcursos-jwt-cloudsql-secure-token-2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'smartcursos-jwt-supabase-secure-token-2026';
 const TOKEN_EXPIRY = '7d';
 
 // Helper: Public user profile without sensitive credentials
@@ -210,7 +208,7 @@ const sanitizeUser = (user: any) => ({
 const cleanEmail = (email: string) => email.trim().toLowerCase();
 
 // ============================================================================
-// CONTROLE DE ACESSO: Middleware de Autenticação Dual (JWT + Firebase ID Token)
+// CONTROLE DE ACESSO: Middleware de Autenticação JWT (Supabase PostgreSQL)
 // Garante que o usuário logado acesse única e exclusivamente os seus próprios dados (Anti-IDOR)
 // ============================================================================
 export interface AuthenticatedRequest extends express.Request {
@@ -232,7 +230,6 @@ const requireAuth = async (req: AuthenticatedRequest, res: express.Response, nex
 
   const token = authHeader.split(' ')[1];
 
-  // 1. Tentar decodificar JWT padrão do sistema
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: number; email: string; role: string };
     if (decoded && decoded.userId) {
@@ -240,29 +237,7 @@ const requireAuth = async (req: AuthenticatedRequest, res: express.Response, nex
       return next();
     }
   } catch (jwtErr) {
-    // Se não for JWT interno, tentar como Firebase ID Token
-  }
-
-  // 2. Tentar verificar via Firebase Admin
-  try {
-    const decodedFirebase = await adminAuth.verifyIdToken(token);
-    if (decodedFirebase && decodedFirebase.uid) {
-      // Sincronizar / Obter usuário no Cloud SQL
-      const dbUser = await getOrCreateFirebaseUser(
-        decodedFirebase.uid,
-        decodedFirebase.email || `${decodedFirebase.uid}@firebase.user`,
-        decodedFirebase.name
-      );
-      req.user = {
-        userId: dbUser.id,
-        email: dbUser.email,
-        role: dbUser.role,
-        uid: dbUser.uid
-      };
-      return next();
-    }
-  } catch (firebaseErr) {
-    // Token inválido para ambos
+    // JWT inválido ou expirado
   }
 
   return res.status(401).json({
@@ -322,7 +297,7 @@ app.get('/api/database/status', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// 2. CADASTRO DE USUÁRIO COM PERSISTÊNCIA REAL NO CLOUD SQL
+// 2. CADASTRO DE USUÁRIO COM PERSISTÊNCIA REAL NO SUPABASE (POSTGRESQL)
 // Regras de Segurança: Validação de tamanho de senha, hash bcrypt, e-mail único
 // ----------------------------------------------------------------------------
 app.post('/api/auth/register', async (req, res) => {
@@ -406,7 +381,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// 3. LOGIN SEGURO COM PROTEÇÃO CONTRA FORÇA BRUTA NO CLOUD SQL
+// 3. LOGIN SEGURO COM PROTEÇÃO CONTRA FORÇA BRUTA NO SUPABASE (POSTGRESQL)
 // Regras: 5 tentativas máx, bloqueio de 15 minutos, auditoria de falhas
 // ----------------------------------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
@@ -420,7 +395,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const normalizedEmail = cleanEmail(email);
 
-    // Buscar usuário no Cloud SQL
+    // Buscar usuário no Supabase / PostgreSQL
     const user = await findUserByEmail(normalizedEmail);
 
     if (!user) {
@@ -485,9 +460,9 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // Sucesso: zerar contador de tentativas no Cloud SQL
+    // Sucesso: zerar contador de tentativas no banco de dados
     await updateUserLoginAttempts(user.id, 0, null);
-    await logSecurityAudit(user.id, 'LOGIN_SUCCESS', `Login bem-sucedido via Cloud SQL`, clientIp);
+    await logSecurityAudit(user.id, 'LOGIN_SUCCESS', `Login bem-sucedido via Supabase PostgreSQL`, clientIp);
 
     // Gerar JWT
     const token = jwt.sign(
@@ -496,7 +471,7 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: TOKEN_EXPIRY }
     );
 
-    // Carregar progresso real do Cloud SQL
+    // Carregar progresso real do Supabase
     const progress = await getUserFullProgress(user.id);
 
     return res.json({
@@ -518,83 +493,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// 4. LOGIN VIA GOOGLE (Firebase Auth ou Credencial Direta Universal)
-// ----------------------------------------------------------------------------
-app.post('/api/auth/google-login', async (req, res) => {
-  const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-  try {
-    const { idToken, email: directEmail, name: directName, uid: directUid } = req.body;
-
-    let email = '';
-    let name = '';
-    let uid = '';
-
-    if (idToken) {
-      try {
-        const decoded = await adminAuth.verifyIdToken(idToken);
-        email = decoded.email || '';
-        name = decoded.name || email.split('@')[0];
-        uid = decoded.uid;
-      } catch (tokenErr) {
-        console.warn('Firebase token verification fallback to body credentials:', tokenErr);
-        if (directEmail) {
-          email = directEmail;
-          name = directName || email.split('@')[0];
-          uid = directUid || `google-${Buffer.from(email).toString('hex').slice(0, 16)}`;
-        } else {
-          throw tokenErr;
-        }
-      }
-    } else if (directEmail) {
-      email = directEmail.toLowerCase().trim();
-      name = directName?.trim() || email.split('@')[0];
-      uid = directUid || `google-${Buffer.from(email).toString('hex').slice(0, 16)}`;
-    } else {
-      return res.status(400).json({ error: 'Credenciais da Conta Google não fornecidas.' });
-    }
-
-    if (!email) {
-      return res.status(400).json({ error: 'E-mail não fornecido pela conta Google.' });
-    }
-
-    // Sincronizar / Criar usuário no PostgreSQL Cloud SQL
-    const dbUser = await getOrCreateFirebaseUser(
-      uid,
-      email,
-      name
-    );
-
-    await logSecurityAudit(dbUser.id, 'GOOGLE_LOGIN_SUCCESS', `Login via Google: ${email}`, clientIp);
-
-    // Emitir JWT da sessão
-    const token = jwt.sign(
-      { userId: dbUser.id, email: dbUser.email, role: dbUser.role },
-      JWT_SECRET,
-      { expiresIn: TOKEN_EXPIRY }
-    );
-
-    const progress = await getUserFullProgress(dbUser.id);
-
-    return res.json({
-      message: 'Login via Google realizado com sucesso!',
-      token,
-      user: sanitizeUser(dbUser),
-      progress: {
-        completedLessons: progress.completedLessons,
-        currentLessonId: progress.currentLessonId,
-        quizScores: progress.quizScores,
-        studentName: progress.studentName,
-        certificateEarnedDate: progress.certificateEarnedDate
-      }
-    });
-  } catch (error: any) {
-    console.error('Google login error:', error);
-    return res.status(401).json({ error: 'Falha na validação da conta Google.' });
-  }
-});
-
-// ----------------------------------------------------------------------------
-// 5. ISOLAMENTO DE DADOS: GET /api/user/me
+// 4. ISOLAMENTO DE DADOS: GET /api/user/me
 // O ID do usuário logado é extraído exclusivamente do token autenticado (Prevenção Anti-IDOR)
 // ----------------------------------------------------------------------------
 app.get('/api/user/me', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -719,7 +618,7 @@ app.post('/api/user/lesson-progress', requireAuth, async (req: AuthenticatedRequ
 });
 
 // ----------------------------------------------------------------------------
-// 9. HISTÓRICO COMPLETO DE AULAS ASSISTIDAS E EVOLUÇÃO (Cloud SQL)
+// 8. HISTÓRICO COMPLETO DE AULAS ASSISTIDAS E EVOLUÇÃO (Supabase PostgreSQL)
 // ----------------------------------------------------------------------------
 app.get('/api/user/lesson-history', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
@@ -742,7 +641,7 @@ app.get('/api/user/lesson-history', requireAuth, async (req: AuthenticatedReques
 });
 
 // ----------------------------------------------------------------------------
-// 10. RECUPERAÇÃO DE SENHA SEGURA (Tokens descartáveis no Cloud SQL)
+// 9. RECUPERAÇÃO DE SENHA SEGURA (Tokens descartáveis no Supabase PostgreSQL)
 // ----------------------------------------------------------------------------
 app.post('/api/auth/forgot-password', async (req, res) => {
   const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
@@ -795,7 +694,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// 11. CONFIRMAÇÃO DE REDEFINIÇÃO DE SENHA (Uso único garantido no Cloud SQL)
+// 10. CONFIRMAÇÃO DE REDEFINIÇÃO DE SENHA (Uso único garantido no Supabase PostgreSQL)
 // ----------------------------------------------------------------------------
 app.post('/api/auth/reset-password', async (req, res) => {
   const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
@@ -812,7 +711,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     const normalizedEmail = cleanEmail(email);
 
-    // Buscar token ativo no Cloud SQL
+    // Buscar token ativo no Supabase PostgreSQL
     const activeReset = await findActiveResetToken(normalizedEmail, code);
 
     if (!activeReset) {
@@ -827,7 +726,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'Este código de recuperação expirou (validade de 15 minutos excedida). Solicite um novo.' });
     }
 
-    // Invalidar token no Cloud SQL imediatamente
+    // Invalidar token no Supabase PostgreSQL imediatamente
     await markResetTokenUsed(activeReset.id);
 
     // Atualizar senha do usuário com hash bcrypt

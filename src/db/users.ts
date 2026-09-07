@@ -9,7 +9,7 @@ import {
 } from './schema.ts';
 
 // ----------------------------------------------------------------------------
-// Funções de Usuário e Autenticação no Cloud SQL (PostgreSQL)
+// Funções de Usuário e Autenticação no Supabase (PostgreSQL)
 // ----------------------------------------------------------------------------
 
 export async function findUserByEmail(email: string) {
@@ -86,65 +86,6 @@ export async function createUserWithPassword(data: {
   } catch (error) {
     console.error('Database insert failed in createUserWithPassword:', error);
     throw new Error('Falha ao registrar novo usuário no banco de dados.', { cause: error });
-  }
-}
-
-export async function getOrCreateFirebaseUser(uid: string, email: string, name?: string) {
-  try {
-    const normalizedEmail = email.trim().toLowerCase();
-    const displayName = name?.trim() || normalizedEmail.split('@')[0];
-
-    // Verificar se já existe por e-mail para reaproveitar conta existente
-    const existing = await findUserByEmail(normalizedEmail);
-    if (existing) {
-      const [updated] = await db.update(users)
-        .set({
-          name: displayName || existing.name,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, existing.id))
-        .returning();
-
-      await db.insert(userProgressSummary)
-        .values({
-          userId: existing.id,
-          currentLessonId: 'py-aula-1',
-          totalCompletedLessons: 0,
-        })
-        .onConflictDoNothing();
-
-      return updated || existing;
-    }
-
-    const [user] = await db.insert(users)
-      .values({
-        uid,
-        email: normalizedEmail,
-        name: displayName,
-        role: 'student',
-      })
-      .onConflictDoUpdate({
-        target: users.uid,
-        set: {
-          email: normalizedEmail,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-
-    // Garantir que existe o resumo de progresso
-    await db.insert(userProgressSummary)
-      .values({
-        userId: user.id,
-        currentLessonId: 'py-aula-1',
-        totalCompletedLessons: 0,
-      })
-      .onConflictDoNothing();
-
-    return user;
-  } catch (error: any) {
-    console.error('Database upsert failed in getOrCreateFirebaseUser:', error);
-    throw new Error('Falha ao autenticar usuário Firebase no banco de dados: ' + (error?.message || String(error)));
   }
 }
 

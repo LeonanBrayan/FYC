@@ -7,10 +7,10 @@ import { boolean, integer, pgTable, serial, text, timestamp, uniqueIndex } from 
 // ============================================================================
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
-  uid: text('uid').notNull().unique(), // Identificador único (Firebase UID ou UUID)
+  uid: text('uid').notNull().unique(), // Identificador único (UUID do usuário)
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
-  passwordHash: text('password_hash'), // Hash bcrypt (vazio caso autentique via Google)
+  passwordHash: text('password_hash'), // Hash bcrypt (10 rounds)
   role: text('role').notNull().default('student'), // 'student' | 'admin'
   bio: text('bio').default('Estudante SmartCursos'),
   customNotes: text('custom_notes').default(''),

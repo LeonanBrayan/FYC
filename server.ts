@@ -83,7 +83,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Setup email delivery service (SMTP or Resend)
+// Setup email delivery service through server-side SMTP credentials.
 interface SendEmailResult {
   success: boolean;
   configured: boolean;
@@ -125,39 +125,7 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
   const subject = `Seu código de redefinição de senha: ${resetCode} - SmartCursos`;
   const text = `Olá ${studentName},\n\nSeu código de redefinição de senha do SmartCursos é: ${resetCode}\n\nEste código expira em 15 minutos e só pode ser utilizado uma vez.\n\nSe você não solicitou, ignore esta mensagem.`;
 
-  // 1. Resend API
-  if (process.env.RESEND_API_KEY) {
-    try {
-      const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || 'SmartCursos <onboarding@resend.dev>';
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: fromAddress,
-          to: [toEmail],
-          subject,
-          text,
-          html: htmlContent
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        console.error('[Email Service] Erro na API do Resend para envio de código de recuperação.');
-        return { success: false, configured: true, provider: 'Resend', error: data.message || 'Falha ao enviar via Resend' };
-      }
-      console.log('[Email Service] E-mail de recuperação enviado com sucesso via Resend.');
-      return { success: true, configured: true, provider: 'Resend' };
-    } catch (err: any) {
-      console.error('[Email Service] Falha na requisição ao Resend para envio de código de recuperação.');
-      return { success: false, configured: true, provider: 'Resend', error: err.message };
-    }
-  }
-
-  // 2. SMTP (Gmail, Brevo, SendGrid, custom SMTP)
+  // SMTP (Gmail, Brevo, SendGrid, custom SMTP)
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
@@ -168,8 +136,10 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
         return { success: false, configured: false, provider: 'SMTP', error: 'SMTP_HOST não configurado.' };
       }
 
-      const port = Number(process.env.SMTP_PORT) || (host === 'smtp.gmail.com' ? 587 : 587);
-      const isSecure = process.env.SMTP_SECURE === 'true' || port === 465;
+      const port = Number(process.env.SMTP_PORT) || 465;
+      const isSecure = process.env.SMTP_SECURE
+        ? process.env.SMTP_SECURE === 'true'
+        : port === 465;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -198,8 +168,7 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
     }
   }
 
-  // 3. Fallback: No real email service configured in environment
-  console.warn('[Email Service] ⚠️ Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. Operação de reset iniciada sem envio externo.');
+  // Do not create or expose reset codes when email delivery is unavailable.
   return {
     success: false,
     configured: false,

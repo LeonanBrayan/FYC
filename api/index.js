@@ -604,35 +604,6 @@ Seu c\xF3digo de redefini\xE7\xE3o de senha do SmartCursos \xE9: ${resetCode}
 Este c\xF3digo expira em 15 minutos e s\xF3 pode ser utilizado uma vez.
 
 Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
-  if (process.env.RESEND_API_KEY) {
-    try {
-      const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || "SmartCursos <onboarding@resend.dev>";
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: fromAddress,
-          to: [toEmail],
-          subject,
-          text: text2,
-          html: htmlContent
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error("[Email Service] Erro na API do Resend para envio de código de recuperação.");
-        return { success: false, configured: true, provider: "Resend", error: data.message || "Falha ao enviar via Resend" };
-      }
-      console.log("[Email Service] E-mail de recuperação enviado com sucesso via Resend.");
-      return { success: true, configured: true, provider: "Resend" };
-    } catch (err) {
-      console.error("[Email Service] Falha na requisi\xE7\xE3o ao Resend para envio de código de recuperação.");
-      return { success: false, configured: true, provider: "Resend", error: err.message };
-    }
-  }
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   if (smtpUser && smtpPass) {
@@ -641,8 +612,8 @@ Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
       if (!host) {
         return { success: false, configured: false, provider: "SMTP", error: "SMTP_HOST n\xE3o configurado." };
       }
-      const port = Number(process.env.SMTP_PORT) || (host === "smtp.gmail.com" ? 587 : 587);
-      const isSecure = process.env.SMTP_SECURE === "true" || port === 465;
+      const port = Number(process.env.SMTP_PORT) || 465;
+      const isSecure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === "true" : port === 465;
       const transporter = nodemailer.createTransport({
         host,
         port,
@@ -667,7 +638,6 @@ Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
       return { success: false, configured: true, provider: "SMTP", error: `Falha no envio SMTP: ${err.message}` };
     }
   }
-  console.warn("[Email Service] \u26A0\uFE0F Nenhuma credencial de e-mail (SMTP_USER/SMTP_PASS ou RESEND_API_KEY) configurada. Operação de reset iniciada sem envio externo.");
   return {
     success: false,
     configured: false,

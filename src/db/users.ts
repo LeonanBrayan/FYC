@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import { db } from './index.ts';
 import { 
   users, 
@@ -163,10 +164,11 @@ export async function createPasswordResetToken(userId: number, email: string, to
 export async function findActiveResetToken(email: string, code: string) {
   try {
     const normalized = email.trim().toLowerCase();
+    const codeHash = crypto.createHash('sha256').update(code.trim()).digest('hex');
     const result = await db.select()
       .from(passwordResetTokens)
       .where(
-        sql`${passwordResetTokens.email} = ${normalized} AND ${passwordResetTokens.code} = ${code.trim()}`
+        sql`${passwordResetTokens.email} = ${normalized} AND ${passwordResetTokens.code} = ${codeHash}`
       )
       .orderBy(sql`${passwordResetTokens.createdAt} DESC`)
       .limit(1);

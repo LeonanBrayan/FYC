@@ -46,6 +46,8 @@ const isAllowedOrigin = (origin: string | undefined) => {
   return false;
 };
 
+const hashResetCode = (code: string) => crypto.createHash('sha256').update(code).digest('hex');
+
 // CORS e cabeçalhos para suporte a Vercel e requisições externas
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -97,7 +99,7 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
         <p style="font-size: 14px; color: #64748b; margin: 4px 0 0;">Plataforma de Cursos Online • Supabase</p>
       </div>
       
-      <p style="font-size: 15px; line-height: 1.5; color: #334155;">Olá, <strong>${studentName}</strong>!</p>
+      <p style="font-size: 15px; line-height: 1.5; color: #334155;">Olá, <strong>${studentName.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] || character)}</strong>!</p>
       <p style="font-size: 14px; line-height: 1.6; color: #475569;">
         Recebemos uma solicitação para redefinir a senha da sua conta no SmartCursos associada ao e-mail <strong>${toEmail}</strong>.
       </p>
@@ -177,9 +179,6 @@ async function sendResetEmail(toEmail: string, studentName: string, resetCode: s
           user: smtpUser,
           pass: smtpPass
         },
-        tls: {
-          rejectUnauthorized: false
-        }
       });
 
       const fromAddress = process.env.SMTP_FROM || `"SmartCursos" <${smtpUser}>`;
@@ -694,16 +693,17 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     if (userFound) {
       // Código de 6 dígitos e Token de uso único
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const token = `reset_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      const code = crypto.randomInt(100000, 1000000).toString();
+      const token = `reset_${crypto.randomBytes(32).toString('hex')}`;
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos de validade
 
-      await createPasswordResetToken(userFound.id, normalizedEmail, token, code, expiresAt);
+      const resetRecord = await createPasswordResetToken(userFound.id, normalizedEmail, token, hashResetCode(code), expiresAt);
       await logSecurityAudit(userFound.id, 'PASSWORD_RESET_REQUESTED', `Código de recuperação gerado para ${normalizedEmail}`, clientIp);
 
       const emailResult = await sendResetEmail(normalizedEmail, userFound.name, code);
 
       if (!emailResult.success) {
+        await markResetTokenUsed(resetRecord.id);
         if (!emailResult.configured) {
           return res.status(503).json({
             error: 'Servidor de e-mail não configurado: adicione suas credenciais SMTP nas variáveis de ambiente da Vercel para envio real.'
@@ -716,7 +716,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       }
 
       return res.json({
-        message: `Enviamos o código de 6 dígitos para o seu e-mail (${normalizedEmail}). Válido por 15 minutos.`
+        message: 'Se o e-mail estiver cadastrado, um código de recuperação foi enviado. O código é válido por 15 minutos.'
       });
     }
 

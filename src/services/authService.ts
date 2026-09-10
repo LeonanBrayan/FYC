@@ -566,6 +566,10 @@ export const authService = {
   // --------------------------------------------------------------------------
   async requestPasswordReset(email: string) {
     const cleanEmail = email.toLowerCase().trim();
+    if (!cleanEmail) {
+      throw new Error('Informe o endereço de e-mail.');
+    }
+
     try {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
@@ -579,16 +583,10 @@ export const authService = {
         return data;
       }
     } catch (err: any) {
-      if (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch')) {
-        throw err;
-      }
+      throw new Error('Não foi possível enviar o código agora. Verifique sua conexão e tente novamente.');
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    return {
-      success: true,
-      message: `Código de verificação gerado: ${code}.`
-    };
+    throw new Error('O serviço de recuperação de senha está temporariamente indisponível.');
   },
 
   async resetPassword(email: string, code: string, newPassword: string) {
@@ -606,12 +604,10 @@ export const authService = {
         return data;
       }
     } catch (err: any) {
-      if (err.message && !err.message.includes('fetch') && !err.message.includes('Failed to fetch')) {
-        throw err;
-      }
+      throw new Error('Não foi possível redefinir a senha agora. Tente novamente.');
     }
 
-    return { success: true, message: 'Senha redefinida com sucesso!' };
+    throw new Error('O serviço de recuperação de senha está temporariamente indisponível.');
   },
 
   // --------------------------------------------------------------------------

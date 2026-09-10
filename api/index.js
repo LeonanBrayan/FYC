@@ -8,6 +8,7 @@ var __export = (target, all) => {
 import "dotenv/config";
 import express from "express";
 import path from "path";
+import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
@@ -277,8 +278,9 @@ async function createPasswordResetToken(userId, email, token, code, expiresAt) {
 async function findActiveResetToken(email, code) {
   try {
     const normalized = email.trim().toLowerCase();
+    const codeHash = crypto.createHash("sha256").update(code.trim()).digest("hex");
     const result = await db.select().from(passwordResetTokens).where(
-      sql`${passwordResetTokens.email} = ${normalized} AND ${passwordResetTokens.code} = ${code.trim()}`
+      sql`${passwordResetTokens.email} = ${normalized} AND ${passwordResetTokens.code} = ${codeHash}`
     ).orderBy(sql`${passwordResetTokens.createdAt} DESC`).limit(1);
     return result[0] || null;
   } catch (error) {
@@ -649,9 +651,6 @@ Se voc\xEA n\xE3o solicitou, ignore esta mensagem.`;
           user: smtpUser,
           pass: smtpPass
         },
-        tls: {
-          rejectUnauthorized: false
-        }
       });
       const fromAddress = process.env.SMTP_FROM || `"SmartCursos" <${smtpUser}>`;
       const info = await transporter.sendMail({
@@ -1018,13 +1017,14 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     const normalizedEmail = cleanEmail(email);
     const userFound = await findUserByEmail(normalizedEmail);
     if (userFound) {
-      const code = Math.floor(1e5 + Math.random() * 9e5).toString();
-      const token = `reset_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      const code = crypto.randomInt(1e5, 1e6).toString();
+      const token = `reset_${crypto.randomBytes(32).toString("hex")}`;
       const expiresAt = new Date(Date.now() + 15 * 60 * 1e3);
-      await createPasswordResetToken(userFound.id, normalizedEmail, token, code, expiresAt);
+      const resetRecord = await createPasswordResetToken(userFound.id, normalizedEmail, token, crypto.createHash("sha256").update(code).digest("hex"), expiresAt);
       await logSecurityAudit(userFound.id, "PASSWORD_RESET_REQUESTED", `C\xF3digo de recupera\xE7\xE3o gerado para ${normalizedEmail}`, clientIp);
       const emailResult = await sendResetEmail(normalizedEmail, userFound.name, code);
       if (!emailResult.success) {
+        await markResetTokenUsed(resetRecord.id);
         if (!emailResult.configured) {
           return res.status(503).json({
             error: "Servidor de e-mail n\xE3o configurado: adicione suas credenciais SMTP nas vari\xE1veis de ambiente da Vercel para envio real."
@@ -1036,7 +1036,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
         }
       }
       return res.json({
-        message: `Enviamos o c\xF3digo de 6 d\xEDgitos para o seu e-mail (${normalizedEmail}). V\xE1lido por 15 minutos.`
+        message: "Se o e-mail estiver cadastrado, um c\xF3digo de recupera\xE7\xE3o foi enviado. O c\xF3digo \xE9 v\xE1lido por 15 minutos."
       });
     }
     return res.json({
